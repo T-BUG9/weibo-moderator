@@ -8,7 +8,6 @@ import sys
 import signal
 import re
 
-# ================== Ollama 支持 ==================
 import ollama
 
 # 二维码识别
@@ -17,11 +16,9 @@ from PIL import Image as PILImage
 import cv2
 import uuid
 
-# ================== HuggingFace + PEFT ==================
 import torch
 from transformers import Qwen2VLForConditionalGeneration, AutoProcessor
 
-# ================== 配置区 ==================
 BASE_MODEL_PATH = r"D:\AIshen\models\Qwen2.5-VL-3B-Instruct"   # 本地路径（有LoRA时使用）
 OLLAMA_FALLBACK_MODEL = "weibo-moderator"
 
@@ -38,7 +35,6 @@ LORA_DIRS = {
     "porn": "lora_porn",
 }
 
-# ================== 审核任务配置（使用你原来的完整版本） ==================
 AUDIT_TASKS = {
     "ad": {
         "name": "广告审核",
@@ -110,7 +106,6 @@ AUDIT_TASKS = {
     },
 }
 
-# ================== 全局缓存 ==================
 _base_model = None
 _base_processor = None
 _lora_models = {}   # task_key -> ("peft", model, processor) 或 ("ollama", None)
@@ -150,13 +145,13 @@ def get_model_for_task(task_key):
 
     lora_path = os.path.join(LORA_BASE_DIR, LORA_DIRS.get(task_key, ""))
 
-    # 没有 LoRA → 直接使用 Ollama（最快路径）
+    # 没有 LoRA 直接使用 Ollama
     if not os.path.exists(lora_path) or not os.path.isdir(lora_path):
         print(f"⚠️ LoRA 文件夹不存在 → 使用 Ollama: {OLLAMA_FALLBACK_MODEL}")
         _lora_models[task_key] = ("ollama", None)
         return task_key
 
-    # 有 LoRA → 使用 PEFT
+    # 有 LoRA 使用 PEFT
     print(f"任务 {task_key} → 正在加载 LoRA adapter...")
     print(f"   LoRA 路径: {lora_path}")
 
@@ -266,11 +261,11 @@ def audit_content(task_key, mid, url, text, img_path_str, vid_path_str, row_inde
     current_task = get_model_for_task(task_key)
     model_info = _lora_models[current_task]
 
-    # ================== Ollama 路径 ==================
+    # Ollama 路径
     if model_info[0] == "ollama":
         return audit_with_ollama(task_key, mid, url, text, img_path_str, row_index, no_reason)
 
-    # ================== PEFT LoRA 路径 ==================
+    #PEFT LoRA 路径
     _, model, processor = model_info
 
     image_paths = []
@@ -336,16 +331,12 @@ def audit_content(task_key, mid, url, text, img_path_str, vid_path_str, row_inde
         generated_tokens = generated_ids[0][inputs["input_ids"].shape[1]:]
         result_str = processor.tokenizer.decode(generated_tokens, skip_special_tokens=True).strip()
 
-        # 强力JSON解析
         try:
-            # 先尝试直接解析
             result = json.loads(result_str)
         except json.JSONDecodeError:
-            # 清理后尝试提取第一个完整的大括号内容
             cleaned = re.sub(r'```json\s*|\s*```', '', result_str, flags=re.IGNORECASE | re.DOTALL)
             cleaned = re.sub(r'<think>.*?</think>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
             
-            # 尝试提取最外层的大括号内容
             json_match = re.search(r'(\{[\s\S]*?\})', cleaned)
             if json_match:
                 try:
@@ -360,7 +351,6 @@ def audit_content(task_key, mid, url, text, img_path_str, vid_path_str, row_inde
         traceback.print_exc()
         result = {"risk_level": "error", "reason": f"模型调用失败: {str(e)[:280]}", "score": 0.0}
 
-    # 清理并补充字段
     result['reason'] = clean_reason(result.get('reason', ''))
     result['risk_level'] = result.get('risk_level', 'unknown').strip()
     result['score'] = float(result.get('score', 0.0))
@@ -374,18 +364,17 @@ def audit_content(task_key, mid, url, text, img_path_str, vid_path_str, row_inde
     print(f"   成功！risk_level = {result.get('risk_level', 'N/A')}")
     return result
 
-# ================== 新增：清理 reason 函数 ==================
 def clean_reason(raw_reason: str) -> str:
     """增强版清理：尝试提取有效JSON，并清理多余内容"""
     if not raw_reason:
         return ""
 
-    # 第一步：去除代码块和思考标签
+    # 去除代码块和思考标签
     cleaned = re.sub(r'```json\s*|\s*```', '', raw_reason, flags=re.IGNORECASE | re.DOTALL)
     cleaned = re.sub(r'<think>.*?</think>', '', cleaned, flags=re.DOTALL | re.IGNORECASE)
     cleaned = cleaned.strip()
 
-    # 第二步：尝试提取 {} 中的JSON内容（应对模型输出前后有多余文字）
+    # 尝试提取 {} 中的JSON内容
     json_match = re.search(r'(\{.*?\})', cleaned, re.DOTALL)
     if json_match:
         potential_json = json_match.group(1)
@@ -406,7 +395,6 @@ def clean_reason(raw_reason: str) -> str:
 
     return cleaned
 
-# ================== 下面是保持不变的辅助函数 ==================
 def open_csv(file_path, mode='r'):
     if mode.startswith('r'):
         encodings = ['utf-8-sig', 'gbk', 'gb18030', 'utf-8', 'latin1']
@@ -421,7 +409,7 @@ def open_csv(file_path, mode='r'):
                 continue
         raise UnicodeDecodeError(f"无法读取文件: {file_path}")
     else:
-        # 写入模式使用 utf-8-sig 并保持 newline=''（防止多余空行）
+        # 写入模式使用 utf-8-sig 并保持 newline=''
         return open(file_path, mode, encoding='utf-8-sig', newline='')
 
 
@@ -474,7 +462,7 @@ def initial_audit(task_key, no_reason=False):
 
     completed_mids = set()
 
-    # ================== 断点续跑逻辑 ==================
+    # 断点续跑逻辑
     if os.path.exists(INITIAL_OUTPUT) and os.path.getsize(INITIAL_OUTPUT) > 0:
         print(f"\n🎯 检测到 {INITIAL_OUTPUT} 存在上次审核记录。")
         while True:
@@ -508,7 +496,7 @@ def initial_audit(task_key, no_reason=False):
     else:
         print("🆕 未检测到现有审核记录，将从头开始审核。")
 
-    # ================== 读取输入文件 ==================
+    #读取输入文件
     all_rows = []
     with open_csv(INPUT_CSV) as f:
         reader = csv.DictReader(f)
@@ -536,7 +524,7 @@ def initial_audit(task_key, no_reason=False):
 
     print(f"✅ 共 {len(remaining_rows)} 条待审核内容，开始审核 (任务: {task_key})...\n")
 
-    # ================== 写入 CSV（重点适配原有 refine_audit） ==================
+    #写入 CSV
     fieldnames = ['MID', '链接', '分类', '备注（原因）', 'score', 
                   'model_type', 'parse_status', 'text', 'image_path']
 
@@ -582,7 +570,7 @@ def refine_audit(task_key):
 
     print("开始比对 initial 和 corrected 文件，并补充原始内容...")
 
-    # 读取模型初判结果（MID -> 分类）
+    # 读取模型初判结果
     audit_class = {}
     original_data = {}   # 保存原始 text 和 image_path
     with open_csv(INITIAL_OUTPUT) as f:
@@ -640,9 +628,6 @@ def refine_audit(task_key):
 
     print(f"比对完成！共 {len(diff_rows)} 条数据，已保存到 {FINAL_OUTPUT}（包含原始内容）")
 
-
-# refine_audit 和 convert_to_lora_jsonl 函数保持你原来的逻辑，这里省略以节省篇幅
-# 如果需要我把它们也补全，请告诉我
 
 def convert_to_lora_jsonl(task_key):
     if not os.path.exists(FINAL_OUTPUT):
